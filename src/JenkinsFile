@@ -1,0 +1,36 @@
+node{
+    stage('SCM checkout'){
+        git 'https://gitlab.com/osenterprise/petclinic.git'
+    }
+    stage('Build'){
+        def mvnHome = tool name: 'maven 3.5.0', type: 'maven'
+        def mvnCD = "${mvnHome}/bin/mvn"
+        sh "${mvnCD} clean package"
+    }
+    stage('P.Unitarias'){
+        junit 'target/surefire-reports/**/*.xml'
+    }
+    stage('P.Codigo estatico'){
+        def scannerHome = tool 'sonarqube'
+        withSonarQubeEnv ('sonarqube'){
+        sh "${scannerHome}/bin/sonar-scanner -Dsonar.login=admin -Dsonar.password=admin -Dsonar.java.binaries=** -Dsonar.language=java -Dsonar.java=binaries -Dsonar.sourceEnconding=UTF-8 -Dsonar.sources=src"
+        }
+    }
+    stage('Deploy Amb-QA'){
+        ansiblePlaybook inventory: '/var/jenkins_home/ansible/hosts', playbook: '/var/jenkins_home/ansible/docker.yaml'
+    }
+    stage('P.NoFuncionales'){
+        sshPublisher(publishers: [sshPublisherDesc(configName: 'selenium.ose.pe', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: '''cd /opt/selenium/selenium-jenkins/target;
+        java -cp selenium-docker.jar:selenium-docker-tests.jar:libs/* org.testng.TestNG ../testng.xml;''', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: '', remoteDirectorySDF: false, removePrefix: '', sourceFiles: '/opt/selenium/selenium-jenkins/target')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+    }
+    stage('Pruebas Stress') {
+        sh '/var/jenkins_home/jmeter/apache-jmeter-5.2.1/bin/jmeter.sh -Jjmeter.save.saveservice.output_format=xml -n -t /var/jenkins_home/jmeter/osenterprise.jmx -l Test.jtl'
+    }
+    stage('Push-Registry') {
+        sh '/var/jenkins_home/ansible/deploy.sh'
+        ansiblePlaybook inventory: '/var/jenkins_home/ansible/hosts', playbook: '/var/jenkins_home/ansible/push.yaml'
+    }
+    stage('Producción') {
+        ansiblePlaybook inventory: '/var/jenkins_home/ansible/hosts', playbook: '/var/jenkins_home/ansible/k8s.yaml'
+    }
+}
