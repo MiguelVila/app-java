@@ -1,9 +1,11 @@
 node {
     checkout scm
 
-    def customImage = docker.build("my-image:${env.BUILD_ID}")
+    docker.withRegistry('https://registry.example.com', 'credentials-docker') {
 
-    customImage.inside {
-        sh 'make test'
+        def customImage = docker.build("040500/app-java:${env.BUILD_ID}")
+
+        /* Push the container to the custom Registry */
+        customImage.push()
     }
 }
